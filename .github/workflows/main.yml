@@ -1,0 +1,56 @@
+name: Build Windows EXE
+
+# When does this workflow run?
+on:
+  # Every time you push code to the main branch (or rename if your default is "master")
+  push:
+    branches: [ main, master ]
+  # When you publish a release on GitHub
+  release:
+    types: [ published ]
+  # Lets you trigger the build manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows .exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build the .exe with PyInstaller
+        run: |
+          pyinstaller --noconfirm --clean `
+            --onefile --windowed `
+            --name TallySalesReport `
+            --add-data "converter.py;." `
+            app.py
+
+      - name: Upload .exe as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TallySalesReport-Windows
+          path: dist/TallySalesReport.exe
+          retention-days: 90
+          if-no-files-found: error
+
+      # If this run was triggered by publishing a release, also attach the
+      # .exe to that release page for easy downloading.
+      - name: Attach .exe to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/TallySalesReport.exe
