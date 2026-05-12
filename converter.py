@@ -213,7 +213,24 @@ def parse_tally_xml(xml_path: str) -> List[Voucher]:
     try:
         tree = ET.ElementTree(ET.fromstring(data))
     except ET.ParseError as exc:
-        raise ValueError(f"Could not parse Tally XML: {exc}") from exc
+        # Some Tally exports may include a BOM or use UTF-16 encoding.
+        # Retry parsing after decoding common XML encodings.
+        for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be"):
+            try:
+                text = data.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+            try:
+                tree = ET.ElementTree(ET.fromstring(text))
+                break
+            except ET.ParseError:
+                continue
+        else:
+            raise ValueError(
+                "Could not parse Tally XML. "
+                "The file may not be valid XML or may use an unsupported encoding. "
+                f"Original parser error: {exc}"
+            ) from exc
 
     root = tree.getroot()
     vouchers: List[Voucher] = []
@@ -266,7 +283,7 @@ def build_rows(vouchers: List[Voucher]):
                 "Quantity": "",
                 "Rate": "",
                 "Amount (Excl. GST)": _round2(taxable),
-                "GST %": it.gst_pct,
+                "GST %": "Exempted" if it.gst_pct == 0.0 else it.gst_pct,
                 "CGST Amount": cgst,
                 "SGST Amount": sgst,
                 "IGST Amount": igst,
@@ -314,8 +331,11 @@ def write_xlsx(rows, out_path: str, sheet_name: str = "Sales Report (from Tally)
                 cell.number_format = "#,##0.00;(#,##0.00);-"
                 cell.alignment = right_align
             elif name == "GST %":
-                cell.number_format = '0"%"'
-                cell.alignment = center_align
+                if isinstance(value, (int, float)):
+                    cell.number_format = '0"%"'
+                    cell.alignment = center_align
+                else:
+                    cell.alignment = left_align
             elif name == "Quantity":
                 cell.alignment = right_align
             else:
